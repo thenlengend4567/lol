@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 3D Solar System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; color: white; font-family: 'Inter', sans-serif; }
+        canvas { display: block; }
+        #infoPanel {
+            position: absolute;
+            top: 20px;
+            right: 20px; 
+            background-color: rgba(0, 0, 0, 0.75);
+            padding: 15px;
+            border-radius: 10px;
+            max-width: 300px;
+            display: none; 
+            color: #fff;
+            font-size: 0.9rem;
+            z-index: 100;
+        }
+        #infoPanel h2 { font-size: 1.5em; margin-bottom: 10px; color: #ffa500; }
+        #infoPanel p { margin-bottom: 5px; }
+        #infoPanel strong { color: #ddd; }
+
+        .ui-button {
+            background-color: rgba(50, 50, 50, 0.8);
+            border: 1px solid rgba(200, 200, 200, 0.5);
+            color: white;
+            padding: 10px 15px;
+            margin: 8px 0; 
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            width: 100%; 
+            text-align: left;
+        }
+        .ui-button:hover { background-color: rgba(80, 80, 80, 0.9); }
+
+        #controlsSidebar { 
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 200px; 
+            display: flex;
+            flex-direction: column; 
+            gap: 5px; 
+            padding: 15px;
+            background-color: rgba(0,0,0,0.6);
+            border-radius: 8px;
+            z-index: 100;
+        }
+        #loadingIndicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 2em;
+            text-align: center;
+            z-index: 200;
+        }
+        .dg.main { top: 20px; right: 20px !important; left: auto !important; z-index: 101 !important; } 
+        .dg.main .close-button { background-color: #333; }
+        .dg.main .close-button:hover { background-color: #555; }
+        .dg li:not(.folder) { background: #2a2a2a; border-bottom: 1px solid #333; }
+        .dg .cr.function:hover, .dg .cr.boolean:hover { background: #3a3a3a; }
+        .dg .closed .title { color: #aaa; }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
+            "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+        }
+    }
+    </script>
+
+</head>
+<body>
+    <div id="loadingIndicator">Loading Solar System...<br><span id="loadingProgress">0%</span></div>
+
+    <div id="infoPanel">
+        <h2 id="infoName"></h2>
+        <p><strong>Type:</strong> <span id="infoType"></span></p>
+        <p><strong>Radius:</strong> <span id="infoRadius"></span></p>
+        <p><strong>Mass:</strong> <span id="infoMass"></span></p>
+        <p><strong>Orbital Distance:</strong> <span id="infoOrbitalDistance"></span></p>
+        <p><strong>Orbital Period:</strong> <span id="infoOrbitalPeriod"></span></p>
+        <p><strong>Rotation Period:</strong> <span id="infoRotationPeriod"></span></p>
+        <p><strong>Axial Tilt:</strong> <span id="infoAxialTilt"></span></p>
+        <p id="infoAtmosphereP" style="display:none;"><strong>Atmosphere:</strong> <span id="infoAtmosphere"></span></p>
+        <p><strong>Temperature:</strong> <span id="infoTemperature"></span></p>
+        <p id="infoMoonsP" style="display:none;"><strong>Moons:</strong> <span id="infoMoons"></span></p>
+        <p><strong>Description:</strong> <span id="infoDescription"></span></p>
+    </div>
+
+    <div id="controlsSidebar">
+        <button id="solarSystemViewButton" class="ui-button">Solar System View</button>
+        <button id="prevPlanet" class="ui-button">&lt; Prev Body</button>
+        <button id="nextPlanet" class="ui-button">Next Body &gt;</button>
+        <label for="timeScale" class="text-sm text-gray-300 mt-2">Time Speed:</label>
+        <select id="timeScale" class="ui-button bg-gray-700 text-white">
+            <option value="0.1">0.1x Speed</option>
+            <option value="1" selected>1x Speed</option>
+            <option value="10">10x Speed</option>
+            <option value="100">100x Speed</option>
+            <option value="1000">1000x Speed</option>
+            <option value="0">Pause</option>
+        </select>
+        <button id="toggleOrbits" class="ui-button">Toggle Orbits</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.min.js"></script>
+    
+    <script type="module">
+        import * as THREE from 'three'; 
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+        // Simplex noise for sun surface animation (optional, can be embedded or from CDN)
+        // For simplicity, I'll embed a very basic noise function later if needed, or skip if it complicates loading.
+
+        (function(){var script=document.createElement('script');script.onload=function(){var stats=new Stats();stats.dom.style.cssText='position:absolute;top:0;left:auto;right:0;z-index:1000;'; document.body.appendChild(stats.dom);requestAnimationFrame(function loop(){stats.update();requestAnimationFrame(loop)});};script.src='https://mrdoob.github.io/stats.js/build/stats.min.js';document.head.appendChild(script);})();
+        
+        let guiInstance = null;
+        const guiScript = document.createElement('script');
+        guiScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js';
+        guiScript.onload = () => {
+            console.log("dat.GUI script loaded.");
+            if (typeof initDatGUI === 'function' && !guiInstance) {
+                initDatGUI();
+            }
+        };
+        document.head.appendChild(guiScript);
+
+        let scene, camera, renderer, controls;
+        let composer;
+        let sun; 
+        const planets = []; 
+        const orbitalPaths = [];
+        let focusedObject = null;
+        let timeMultiplier = 1;
+        let showOrbits = true;
+
+        const loadingManager = new THREE.LoadingManager();
+        const textureLoader = new THREE.TextureLoader(loadingManager);
+
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const loadingProgress = document.getElementById('loadingProgress');
+
+        loadingManager.onStart = function ( url, itemsLoaded, itemsTotal ) {
+            console.log( 'LoadingManager: Started loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+        };
+
+        loadingManager.onProgress = function (url, itemsLoaded, itemsTotal) {
+            console.log( 'LoadingManager: Loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+            const progress = (itemsLoaded / itemsTotal * 100);
+            if(loadingProgress) loadingProgress.textContent = `${progress.toFixed(0)}%`;
+        };
+
+        loadingManager.onLoad = function () {
+            console.log('LoadingManager: All assets loaded successfully!');
+            if (loadingIndicator) loadingIndicator.style.display = 'none';
+            try {
+                console.log("Calling init()...");
+                init();
+                console.log("Calling animate()...");
+                animate();
+                console.log("Initialization and animation started.");
+            } catch(e) {
+                console.error("Critical Error during initialization or animation start:", e);
+                if (loadingIndicator) {
+                    loadingIndicator.textContent = 'Critical Error. Check console.';
+                    loadingIndicator.style.display = 'block';
+                }
+            }
+        };
+
+        loadingManager.onError = function (url) {
+            console.error('LoadingManager: Error loading asset: ' + url);
+            if (loadingIndicator) {
+                 loadingIndicator.textContent = `Error loading: ${url.split('/').pop()}. Check console.`;
+                 loadingIndicator.style.display = 'block'; // Keep visible on error
+            }
+        };
+
+        // --- Data for Celestial Bodies ---
+        // Textures: Using 2k from solarsystemscope.com. Removed .tif files for Earth.
+        const solarSystemData = {
+            sun: {
+                name: "Sun", type: "Star (G-type main-sequence)", radius: 20, 
+                texture: 'https://www.solarsystemscope.com/textures/download/2k_sun.jpg',
+                // noiseTexture: 'https://example.com/path/to/seamless_noise.png', // For dynamic surface
+                emissive: 0xffddaa, emissiveIntensity: 2.2, // Slightly brighter
+                data: { /* ... as before ... */ 
+                    radius: "695,700 km", mass: "333,000 Earths", orbitalDistance: "N/A", orbitalPeriod: "N/A (Galactic orbit ~230M years)",
+                    rotationPeriod: "~27 Earth days (equator)", axialTilt: "7.25° (to ecliptic)", temperature: "Surface: ~5,500°C, Core: ~15M°C",
+                    description: "The star at the center of our Solar System, providing light and heat essential for life on Earth."
+                }
+            },
+            mercury: { /* ... */ 
+                name: "Mercury", type: "Terrestrial Planet", radius: 0.38, orbitalDistance: 35, orbitalSpeed: 0.0018, rotationSpeed: 0.001,
+                texture: 'https://www.solarsystemscope.com/textures/download/2k_mercury.jpg',
+                data: { radius: "2,439.7 km", mass: "0.055 Earths", orbitalDistance: "0.39 AU", orbitalPeriod: "88 Earth days", rotationPeriod: "58.6 Earth days", axialTilt: "0.03°", temperature: "-173°C to 427°C", description: "Smallest planet, closest to the Sun, heavily cratered." }
+            },
+            venus: { /* ... */ 
+                name: "Venus", type: "Terrestrial Planet", radius: 0.95, orbitalDistance: 50, orbitalSpeed: 0.0012, rotationSpeed: -0.0005, 
+                texture: 'https://www.solarsystemscope.com/textures/download/2k_venus_surface.jpg', 
+                atmosphereTexture: 'https://www.solarsystemscope.com/textures/download/2k_venus_atmosphere.jpg',
+                data: { radius: "6,051.8 km", mass: "0.815 Earths", orbitalDistance: "0.72 AU", orbitalPeriod: "224.7 Earth days", rotationPeriod: "243 Earth days (retrograde)", axialTilt: "177.36°", temperature: "Average 462°C", atmosphere: "96.5% CO2, 3.5% N2", description: "Earth's 'sister planet' with a thick, toxic atmosphere." }
+            },
+            earth: {
+                name: "Earth", type: "Terrestrial Planet", radius: 1, orbitalDistance: 70, orbitalSpeed: 0.001, rotationSpeed: 0.01,
+                texture: 'https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg',
+                // specularMap: 'REMOVED_TIF_PLACEHOLDER', // .tif problematic
+                // normalMap: 'REMOVED_TIF_PLACEHOLDER',   // .tif problematic
+                cloudTexture: 'https://www.solarsystemscope.com/textures/download/2k_earth_clouds.jpg',
+                data: { /* ... */ 
+                    radius: "6,371 km", mass: "1 Earth", orbitalDistance: "1 AU", orbitalPeriod: "365.25 Earth days",
+                    rotationPeriod: "23.93 hours", axialTilt: "23.44°", temperature: "Average 15°C",
+                    atmosphere: "78% N2, 21% O2, 1% Ar",
+                    description: "Our home planet, the only known astronomical object to harbor life."
+                },
+                moons: { moon: { /* ... */ 
+                    name: "Moon", type: "Natural Satellite", radius: 0.27, orbitalDistance: 3.5, orbitalSpeed: 0.01, rotationSpeed: 0.001, 
+                    texture: 'https://www.solarsystemscope.com/textures/download/2k_moon.jpg',
+                    data: { radius: "1,737.4 km", mass: "0.0123 Earths", orbitalDistance: "384,400 km (from Earth)", orbitalPeriod: "27.3 Earth days", rotationPeriod: "27.3 Earth days (tidally locked)", axialTilt: "6.68°", temperature: "-173°C to 127°C", description: "Earth's only natural satellite." }
+                }}
+            },
+            mars: { /* ... */ 
+                name: "Mars", type: "Terrestrial Planet", radius: 0.53, orbitalDistance: 90, orbitalSpeed: 0.0008, rotationSpeed: 0.009,
+                texture: 'https://www.solarsystemscope.com/textures/download/2k_mars.jpg',
+                data: { radius: "3,389.5 km", mass: "0.107 Earths", orbitalDistance: "1.52 AU", orbitalPeriod: "687 Earth days", rotationPeriod: "24.6 hours", axialTilt: "25.19°", temperature: "-143°C to 35°C", atmosphere: "95% CO2, 2.7% N2, 1.6% Ar", description: "The 'Red Planet', known for its iron oxide surface." },
+                moons: {
+                    phobos: { name: "Phobos", type: "Natural Satellite", radius: 0.03, orbitalDistance: 0.6, orbitalSpeed: 0.1, textureColor: 0x555555, data: { description: "Larger moon of Mars."}},
+                    deimos: { name: "Deimos", type: "Natural Satellite", radius: 0.02, orbitalDistance: 0.9, orbitalSpeed: 0.08, textureColor: 0x666666, data: { description: "Smaller moon of Mars."}}
+                }
+            },
+            jupiter: { /* ... */ 
+                name: "Jupiter", type: "Gas Giant", radius: 11.2, orbitalDistance: 150, orbitalSpeed: 0.0004, rotationSpeed: 0.025,
+                texture: 'https://www.solarsystemscope.com/textures/download/2k_jupiter.jpg',
+                data: { radius: "69,911 km", mass: "317.8 Earths", orbitalDistance: "5.2 AU", orbitalPeriod: "11.86 Earth years", rotationPeriod: "9.93 hours", axialTilt: "3.13°", temperature: "Cloud tops ~ -145°C", atmosphere: "89% H2, 10% He", description: "Largest planet, known for its Great Red Spot." },
+                moons: { 
+                    io: { name: "Io", type: "Natural Satellite", radius: 0.28, orbitalDistance: 7, orbitalSpeed: 0.04, texture: 'https://www.solarsystemscope.com/textures/misc/2k_io.jpg', data: { description: "Volcanically active moon."}},
+                    europa: { name: "Europa", type: "Natural Satellite", radius: 0.24, orbitalDistance: 9, orbitalSpeed: 0.03, texture: 'https://www.solarsystemscope.com/textures/misc/2k_europa.jpg', data: { description: "Icy moon with potential subsurface ocean."}},
+                    ganymede: { name: "Ganymede", type: "Natural Satellite", radius: 0.41, orbitalDistance: 12, orbitalSpeed: 0.02, texture: 'https://www.solarsystemscope.com/textures/misc/2k_ganymede.jpg', data: { description: "Largest moon in the Solar System."}},
+                    callisto: { name: "Callisto", type: "Natural Satellite", radius: 0.38, orbitalDistance: 16, orbitalSpeed: 0.015, texture: 'https://www.solarsystemscope.com/textures/misc/2k_callisto.jpg', data: { description: "Heavily cratered icy moon."}}
+                }
+            },
+            saturn: { /* ... */ 
+                name: "Saturn", type: "Gas Giant", radius: 9.45, orbitalDistance: 200, orbitalSpeed: 0.0003, rotationSpeed: 0.023,
+                texture: 'https://www.solarsystemscope.com/textures/download/2k_saturn.jpg',
+                ringTexture: 'https://www.solarsystemscope.com/textures/download/2k_saturn_ring_alpha.png',
+                // ringNoiseTexture: 'https://example.com/path/to/ring_noise.png', // For particulate look
+                data: { radius: "58,232 km", mass: "95.2 Earths", orbitalDistance: "9.58 AU", orbitalPeriod: "29.45 Earth years", rotationPeriod: "10.7 hours", axialTilt: "26.73°", temperature: "Cloud tops ~ -178°C", atmosphere: "96% H2, 3% He", description: "Famous for its extensive ring system." },
+                moons: {
+                    titan: { name: "Titan", type: "Natural Satellite", radius: 0.40, orbitalDistance: 11, orbitalSpeed: 0.018, texture: 'https://www.solarsystemscope.com/textures/misc/2k_titan.jpg', data: { description: "Saturn's largest moon, thick atmosphere."}},
+                    enceladus: { name: "Enceladus", type: "Natural Satellite", radius: 0.05, orbitalDistance: 5, orbitalSpeed: 0.05, textureColor: 0xeeeeff, data: { description: "Icy moon with geysers."}},
+                    mimas: { name: "Mimas", type: "Natural Satellite", radius: 0.03, orbitalDistance: 4, orbitalSpeed: 0.07, textureColor: 0xbbbbcc, data: { description: "Moon with a large impact crater."}}
+                }
+            },
+            uranus: { /* ... */ 
+                name: "Uranus", type: "Ice Giant", radius: 4.01, orbitalDistance: 260, orbitalSpeed: 0.0002, rotationSpeed: -0.013, 
+                texture: 'https://www.solarsystemscope.com/textures/download/2k_uranus.jpg',
+                data: { radius: "25,362 km", mass: "14.5 Earths", orbitalDistance: "19.2 AU", orbitalPeriod: "84 Earth years", rotationPeriod: "17.2 hours (retrograde)", axialTilt: "97.77°", temperature: "Cloud tops ~ -214°C", atmosphere: "83% H2, 15% He, 2% CH4", description: "Ice giant tilted on its side." }
+            },
+            neptune: { /* ... */ 
+                name: "Neptune", type: "Ice Giant", radius: 3.88, orbitalDistance: 320, orbitalSpeed: 0.00015, rotationSpeed: 0.014,
+                texture: 'https://www.solarsystemscope.com/textures/download/2k_neptune.jpg',
+                data: { radius: "24,622 km", mass: "17.1 Earths", orbitalDistance: "30.1 AU", orbitalPeriod: "164.8 Earth years", rotationPeriod: "16.1 hours", axialTilt: "28.32°", temperature: "Cloud tops ~ -220°C", atmosphere: "80% H2, 19% He, 1% CH4", description: "Most distant major planet, strong winds." }
+            }
+        };
+
+        const params = { /* ... as before ... */ 
+            bloomStrength: 1.3, bloomThreshold: 0.04, bloomRadius: 0.35, 
+            sunIntensity: solarSystemData.sun.emissiveIntensity, timeScale: 1,
+            showStarTwinkling: true, solarFlareFrequency: 0.005,
+            sunRotationSpeed: 0.0005, // For GUI control
+            animateSunSurface: true,
+        };
+
+        // Simple noise function (usually you'd use a library or a noise texture)
+        function simpleNoise(x, y, t) {
+            return Math.sin(x * 0.1 + t) * Math.cos(y * 0.1 + t);
+        }
+
+        function initDatGUI() { /* ... as before, ensure composer.passes[1] exists for bloom ... */
+            if (typeof dat === 'undefined' || guiInstance) return; 
+            guiInstance = new dat.GUI(); 
+            
+            guiInstance.add(params, 'timeScale', 0, 1000, 0.1).name('Time Speed').onChange(val => timeMultiplier = val);
+            const bloomFolder = guiInstance.addFolder('Bloom (Sun)');
+            bloomFolder.add(params, 'bloomStrength', 0, 5, 0.01).name('Strength').onChange(val => { if(composer && composer.passes[1]) composer.passes[1].strength = val; });
+            bloomFolder.add(params, 'bloomThreshold', 0, 1, 0.01).name('Threshold').onChange(val => { if(composer && composer.passes[1]) composer.passes[1].threshold = val; });
+            bloomFolder.add(params, 'bloomRadius', 0, 2, 0.01).name('Radius').onChange(val => { if(composer && composer.passes[1]) composer.passes[1].radius = val; });
+
+            const sunFolder = guiInstance.addFolder('Sun Effects');
+            sunFolder.add(params, 'sunIntensity', 0.1, 5, 0.1).name('Sun Glow Intensity').onChange(val => { if(sun && sun.material) sun.material.emissiveIntensity = val; });
+            sunFolder.add(params, 'solarFlareFrequency', 0, 0.1, 0.001).name('Flare Frequency');
+            sunFolder.add(params, 'sunRotationSpeed', 0, 0.002, 0.0001).name('Sun Rotation');
+            sunFolder.add(params, 'animateSunSurface').name('Animate Surface');
+            // sunFolder.open();
+
+            guiInstance.add(params, 'showStarTwinkling').name('Twinkle Stars');
+            guiInstance.add({ toggleOrbitsF: toggleOrbitalPaths }, 'toggleOrbitsF').name('Toggle Orbits'); // Renamed to avoid conflict
+            guiInstance.add({ solarSystemViewF: focusOnSolarSystemView }, 'solarSystemViewF').name('Solar System View');
+        }
+
+        function init() { /* ... as before ... */
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 50000);
+            camera.position.set(0, 150, 400); 
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true }); // Added logarithmicDepthBuffer
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            document.body.appendChild(renderer.domElement);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 0.5; 
+            controls.maxDistance = 40000; // Increased max distance for starfield
+
+            const ambientLight = new THREE.AmbientLight(0x606070, 0.3); // Slightly cooler ambient
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.PointLight(0xffffff, 1.8, 0, 2); 
+            scene.add(sunLight); 
+
+            createSun();
+            createPlanetsAndMoons(); 
+            createAsteroidBelt();
+            createStarfield(); // Call after other objects to ensure it's in the background
+
+            const renderPass = new RenderPass(scene, camera);
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), params.bloomStrength, params.bloomRadius, params.bloomThreshold);
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderPass);
+            composer.addPass(bloomPass);
+
+            document.getElementById('solarSystemViewButton').addEventListener('click', focusOnSolarSystemView);
+            document.getElementById('nextPlanet').addEventListener('click', () => navigatePlanet(1));
+            document.getElementById('prevPlanet').addEventListener('click', () => navigatePlanet(-1));
+            document.getElementById('timeScale').addEventListener('change', (event) => {
+                timeMultiplier = parseFloat(event.target.value);
+                params.timeScale = timeMultiplier; 
+                if (guiInstance) { 
+                    guiInstance.__controllers.find(c => c.property === 'timeScale')?.setValue(timeMultiplier);
+                }
+            });
+            document.getElementById('toggleOrbits').addEventListener('click', toggleOrbitalPaths);
+            
+            if (typeof dat !== 'undefined' && !guiInstance) {
+                initDatGUI();
+            } else if (guiInstance) { // If dat.GUI loaded before init was ready
+                // Ensure GUI reflects initial params if it was already created
+                 guiInstance.__controllers.find(c => c.property === 'timeScale')?.setValue(params.timeScale);
+                 // ... update other GUI elements if needed
+            }
+
+
+            window.addEventListener('resize', onWindowResize, false);
+            orbitalPaths.forEach(path => path.visible = showOrbits);
+            const toggleButton = document.getElementById('toggleOrbits');
+            if(toggleButton) toggleButton.textContent = showOrbits ? "Hide Orbits" : "Show Orbits";
+        }
+
+        function createSun() {
+            const sunData = solarSystemData.sun;
+            const geometry = new THREE.SphereGeometry(sunData.radius, 64, 64);
+            
+            // Store original UVs for animation
+            geometry.userData.originalUVs = geometry.attributes.uv.clone();
+
+            const sunTexture = textureLoader.load(sunData.texture, 
+                () => { console.log("Sun texture loaded."); }, 
+                undefined, 
+                (err) => { console.error('Error loading sun texture:', sunData.texture, err); } 
+            );
+            sunTexture.encoding = THREE.sRGBEncoding;
+            sunTexture.wrapS = THREE.RepeatWrapping; // For UV animation
+            sunTexture.wrapT = THREE.RepeatWrapping;
+
+            const material = new THREE.MeshBasicMaterial({
+                map: sunTexture,
+                emissive: new THREE.Color(sunData.emissive),
+                emissiveIntensity: sunData.emissiveIntensity,
+                toneMapped: false 
+            });
+            
+            sun = new THREE.Mesh(geometry, material);
+            sun.name = sunData.name;
+            sun.userData = {...sunData, isPlanet: false, isSun: true}; 
+            scene.add(sun);
+            planets.push(sun); 
+
+            const sunLight = scene.getObjectByProperty('type', 'PointLight');
+            if (sunLight) sunLight.position.copy(sun.position);
+
+            // Enhanced Corona - multiple sprites
+            const coronaColors = [0xffeda0, 0xffcc66, 0xffaa33];
+            const coronaScales = [3.0, 4.0, 5.0];
+            const coronaOpacities = [0.35, 0.25, 0.15];
+
+            for (let i = 0; i < coronaColors.length; i++) {
+                const coronaMaterial = new THREE.SpriteMaterial({
+                    map: textureLoader.load('https://threejs.org/examples/textures/sprites/disc.png'), 
+                    color: coronaColors[i],
+                    transparent: true,
+                    opacity: coronaOpacities[i],
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    rotation: Math.random() * Math.PI, // Random initial rotation for variety
+                });
+                const coronaSprite = new THREE.Sprite(coronaMaterial);
+                coronaSprite.scale.set(sunData.radius * coronaScales[i], sunData.radius * coronaScales[i], 1); 
+                coronaSprite.userData.baseScale = coronaScales[i]; // For animation
+                sun.add(coronaSprite); 
+            }
+        }
+
+        function createPlanetsAndMoons() { 
+            Object.keys(solarSystemData).forEach(key => {
+                if (key === 'sun') return; 
+                const planetData = solarSystemData[key];
+                const geometry = new THREE.SphereGeometry(planetData.radius, 32, 32);
+                
+                const materialParams = {
+                    map: planetData.texture ? textureLoader.load(planetData.texture, undefined, undefined, (e) => console.error(`Failed to load ${key} texture: ${planetData.texture}`, e)) : undefined,
+                    color: planetData.texture ? undefined : (planetData.textureColor || 0xaaaaaa)
+                };
+                if (materialParams.map) materialParams.map.encoding = THREE.sRGBEncoding;
+                
+                // Removed .tif specular/normal maps for Earth due to loading issues.
+                // If you find .png/.jpg alternatives, they can be added here.
+
+                const material = new THREE.MeshPhongMaterial(materialParams);
+                material.specular = new THREE.Color( (key === 'earth' || key === 'venus') ? 0x333333 : 0x111111); 
+                material.shininess = (key === 'earth' || key === 'venus') ? 25 : 10;
+
+                const planet = new THREE.Mesh(geometry, material);
+                planet.name = planetData.name;
+                planet.castShadow = true;
+                planet.receiveShadow = true;
+                planet.userData = {...planetData, isPlanet: true, isSun: false}; 
+                planet.userData.id = key; 
+
+                planet.position.x = planetData.orbitalDistance;
+                planet.rotation.y = Math.random() * Math.PI * 2; 
+
+                if (planetData.data && planetData.data.axialTilt) {
+                    const tiltDegrees = parseFloat(planetData.data.axialTilt);
+                    const tiltRadians = tiltDegrees * (Math.PI / 180);
+                    // Apply tilt correctly. The object rotates around its Y axis. We tilt its Y axis.
+                    // This is typically done by rotating the object's parent or by using a group.
+                    // For simplicity here, we'll tilt its geometry or use quaternion.
+                    // planet.rotation.z = tiltRadians; // Tilts relative to world Z if Y is up.
+                    // More robust:
+                    const yAxis = new THREE.Vector3(0, 1, 0);
+                    planet.quaternion.setFromAxisAngle(new THREE.Vector3(0,0,1).applyAxisAngle(yAxis, planet.rotation.y), tiltRadians);
+
+                }
+
+                scene.add(planet);
+                planets.push(planet);
+
+                const points = new THREE.Path().absellipse(0, 0, planetData.orbitalDistance, planetData.orbitalDistance, 0, Math.PI * 2, false, 0).getPoints(100);
+                const orbitGeometry = new THREE.BufferGeometry().setFromPoints(points);
+                const orbitMaterial = new THREE.LineBasicMaterial({ color: 0x444444, transparent: true, opacity: 0.4, dashed: true, dashSize: 1.5, gapSize: 0.8 }); 
+                const orbitalPath = new THREE.LineLoop(orbitGeometry, orbitMaterial); 
+                orbitalPath.rotation.x = Math.PI / 2; 
+                scene.add(orbitalPath);
+                orbitalPaths.push(orbitalPath);
+                planet.userData.orbitalPathMesh = orbitalPath; 
+
+                // Atmosphere (Clouds, Textures, Shaders)
+                if (planetData.cloudTexture) { 
+                    const cloudGeometry = new THREE.SphereGeometry(planetData.radius * 1.015, 32, 32); // Slightly closer clouds
+                    const cloudMaterial = new THREE.MeshPhongMaterial({
+                        map: textureLoader.load(planetData.cloudTexture),
+                        transparent: true, opacity: 0.5, blending: THREE.NormalBlending, 
+                        depthWrite: false, alphaTest: 0.1,
+                    });
+                    const cloudMesh = new THREE.Mesh(cloudGeometry, cloudMaterial);
+                    cloudMesh.name = planetData.name + " Clouds";
+                    planet.add(cloudMesh); 
+                    planet.userData.cloudMesh = cloudMesh;
+                }
+                if (planetData.atmosphereTexture && key === 'venus') { // Specific for Venus texture
+                    const atmosphereGeo = new THREE.SphereGeometry(planetData.radius * 1.03, 32, 32);
+                    const atmosphereMat = new THREE.MeshPhongMaterial({
+                        map: textureLoader.load(planetData.atmosphereTexture),
+                        transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending,
+                        depthWrite: false,
+                    });
+                    const atmosphereMesh = new THREE.Mesh(atmosphereGeo, atmosphereMat);
+                    atmosphereMesh.name = planetData.name + " Atmosphere Texture";
+                    planet.add(atmosphereMesh);
+                    planet.userData.atmosphereMesh = atmosphereMesh;
+                } 
+                // General fresnel atmosphere for others
+                if (key === 'earth' || key === 'mars' || key === 'uranus' || key === 'neptune' || (key === 'venus' && !planetData.atmosphereTexture)) { 
+                    const atmosphereShaderMaterial = createAtmosphereMaterial(planetData.radius, key);
+                    if (atmosphereShaderMaterial) { 
+                        const atmosphereGlow = new THREE.Mesh(
+                            atmosphereShaderMaterial.userData.geometry, // Use geometry from material
+                            atmosphereShaderMaterial
+                        );
+                        atmosphereGlow.name = planetData.name + " Atmosphere Glow";
+                        planet.add(atmosphereGlow);
+                        planet.userData.atmosphereGlow = atmosphereGlow;
+                    }
+                }
+
+                // Rings
+                if (key === 'saturn') {
+                    const ringData = planetData; 
+                    const ringBaseTexture = textureLoader.load(ringData.ringTexture, undefined, undefined, (e) => console.error("Failed to load Saturn ring texture", e));
+                    ringBaseTexture.encoding = THREE.sRGBEncoding;
+                    // const ringNoise = textureLoader.load(ringData.ringNoiseTexture); // If you add a noise texture
+                    // ringNoise.wrapS = ringNoise.wrapT = THREE.RepeatWrapping;
+
+                    const innerRadius = ringData.radius * 1.1; 
+                    const outerRadius = ringData.radius * 2.3;  
+                    const ringGeometry = new THREE.RingGeometry(innerRadius, outerRadius, 128); // More segments for smoother ring
+                    
+                    var pos = ringGeometry.attributes.position;
+                    var v3 = new THREE.Vector3();
+                    for (let i = 0; i < pos.count; i++){
+                        v3.fromBufferAttribute(pos, i);
+                        ringGeometry.attributes.uv.setXY(i, (v3.length() - innerRadius) / (outerRadius - innerRadius), 1);
+                    }
+
+                    const ringMaterial = new THREE.MeshPhongMaterial({
+                        map: ringBaseTexture, 
+                        // alphaMap: ringBaseTexture, // Use map as alphaMap if it has alpha
+                        side: THREE.DoubleSide,
+                        transparent: true, opacity: 0.75, 
+                        alphaTest: 0.05, 
+                        depthWrite: false, 
+                        shininess: 5, specular: 0x111111
+                    });
+                    const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+                    ringMesh.name = "Saturn Rings";
+                    ringMesh.rotation.x = Math.PI / 2; 
+                    ringMesh.receiveShadow = true; // Rings should receive shadows from Saturn
+                    // ringMesh.castShadow = true; // Rings casting shadows is complex
+                    planet.add(ringMesh); 
+                    planet.userData.ringMesh = ringMesh;
+                } else if (key === 'uranus') { /* ... as before ... */
+                     const innerRadius = planetData.radius * 1.3;
+                     const outerRadius = planetData.radius * 1.8;
+                     const ringGeometry = new THREE.RingGeometry(innerRadius, outerRadius, 64);
+                     const ringMaterial = new THREE.MeshBasicMaterial({
+                         color: 0x778899, opacity: 0.3, transparent: true,
+                         side: THREE.DoubleSide, depthWrite: false,
+                     });
+                     const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+                     ringMesh.name = "Uranus Rings";
+                     ringMesh.rotation.x = Math.PI / 2;
+                     planet.add(ringMesh);
+                     planet.userData.ringMesh = ringMesh;
+                }
+
+                // Moons
+                if (planetData.moons) { /* ... as before ... */
+                    planet.userData.moonObjects = []; 
+                    Object.keys(planetData.moons).forEach(moonKey => {
+                        const moonData = planetData.moons[moonKey];
+                        const moonGeo = new THREE.SphereGeometry(moonData.radius, 16, 16);
+                        const moonMatParams = {
+                            map: moonData.texture ? textureLoader.load(moonData.texture, undefined, undefined, (e) => console.error(`Failed to load ${moonKey} texture`, e)) : undefined,
+                            color: moonData.texture ? undefined : (moonData.textureColor || 0x888888)
+                        };
+                        if (moonMatParams.map) moonMatParams.map.encoding = THREE.sRGBEncoding;
+
+                        const moonMaterial = new THREE.MeshPhongMaterial(moonMatParams);
+                        const moonMesh = new THREE.Mesh(moonGeo, moonMaterial);
+                        moonMesh.name = moonData.name;
+                        moonMesh.castShadow = true; moonMesh.receiveShadow = true;
+                        moonMesh.userData = {...moonData, isMoon: true, isPlanet: false, parentPlanet: planet, id: `${key}-${moonKey}`}; 
+                        moonMesh.position.x = moonData.orbitalDistance;
+                        planet.add(moonMesh); 
+                        planet.userData.moonObjects.push(moonMesh);
+                        planets.push(moonMesh); 
+                    });
+                }
+            });
+        }
+        
+        function createAtmosphereMaterial(planetRadius, planetKey) { /* ... as before, ensure geometry is stored in material.userData.geometry ... */
+            let atmColor = new THREE.Color(0x6699ff); 
+            let intensity = 1.0;
+            let power = 2.0; 
+            let scaleFactor = 1.04; 
+
+            if (planetKey === 'earth') { atmColor = new THREE.Color(0x5c8eff); intensity = 1.4; power = 3.5; scaleFactor = 1.025;} 
+            else if (planetKey === 'mars') { atmColor = new THREE.Color(0xff7f50); intensity = 1.0; power = 4.0; scaleFactor = 1.03;} 
+            else if (planetKey === 'venus') { atmColor = new THREE.Color(0xffe4b5); intensity = 1.3; power = 2.5; scaleFactor = 1.035;} 
+            else if (planetKey === 'uranus' || planetKey === 'neptune') { atmColor = new THREE.Color(0xadd8e6); intensity = 1.2; power = 3.0; scaleFactor = 1.03;}
+
+            const vertexShader = `
+                varying vec3 vNormalView; 
+                varying vec3 vPositionView; 
+                void main() {
+                    vNormalView = normalize(normalMatrix * normal);
+                    vPositionView = vec3(modelViewMatrix * vec4(position, 1.0));
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `; // ... fragment shader as before ...
+            const fragmentShader = `
+                uniform vec3 atmColor;
+                uniform float atmIntensity;
+                uniform float atmPower;
+                varying vec3 vNormalView;
+                varying vec3 vPositionView;
+                void main() {
+                    vec3 viewDirection = normalize(-vPositionView); 
+                    float fresnelTerm = 1.0 - dot(viewDirection, vNormalView);
+                    fresnelTerm = pow(fresnelTerm, atmPower);
+                    gl_FragColor = vec4(atmColor * fresnelTerm * atmIntensity, fresnelTerm * atmIntensity * 0.7);
+                }
+            `;
+            const atmosphereGeo = new THREE.SphereGeometry(planetRadius * scaleFactor, 48, 48);
+            const material = new THREE.ShaderMaterial({
+                uniforms: { atmColor: { value: atmColor }, atmIntensity: { value: intensity }, atmPower: { value: power } },
+                vertexShader: vertexShader, fragmentShader: fragmentShader,
+                transparent: true, blending: THREE.AdditiveBlending,
+                side: THREE.BackSide, depthWrite: false
+            });
+            material.userData = { geometry: atmosphereGeo }; 
+            return material;
+        }
+
+        function createAsteroidBelt() { /* ... as before, maybe more asteroids ... */
+            const asteroidCount = 1000; 
+            const beltInnerRadius = solarSystemData.mars.orbitalDistance + 20; 
+            const beltOuterRadius = solarSystemData.jupiter.orbitalDistance - 25;
+            const beltHeight = 10; 
+
+            const asteroidMaterial = new THREE.MeshPhongMaterial({ color: 0x777777, specular: 0x111111, shininess: 2, flatShading: true }); // More distinct asteroids
+            
+            const baseGeometry = new THREE.IcosahedronGeometry(1, 0); 
+
+            const instancedMesh = new THREE.InstancedMesh(baseGeometry, asteroidMaterial, asteroidCount); 
+            instancedMesh.name = "Asteroid Belt";
+            instancedMesh.userData = { name: "Asteroid Belt", type: "Asteroid Field", description: "A region of space between Mars and Jupiter.", isPlanet: false, isSun: false, isMoon: false, isAsteroidBelt: true };
+
+            const dummy = new THREE.Object3D();
+            for (let i = 0; i < asteroidCount; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = beltInnerRadius + Math.random() * (beltOuterRadius - beltInnerRadius);
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                const y = (Math.random() - 0.5) * beltHeight * (1 - Math.pow(Math.abs( (radius - (beltInnerRadius + beltOuterRadius)/2) / ((beltOuterRadius - beltInnerRadius)/2) ), 2) ); // More tapered height
+
+                dummy.position.set(x, y, z);
+                dummy.rotation.set(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2);
+                const scale = Math.random() * 0.20 + 0.03; // Slightly larger max size
+                dummy.scale.set(scale,scale,scale);
+                dummy.updateMatrix();
+                instancedMesh.setMatrixAt(i, dummy.matrix);
+            }
+            instancedMesh.instanceMatrix.needsUpdate = true;
+            scene.add(instancedMesh);
+            planets.push(instancedMesh); 
+        }
+
+        function createStarfield() {
+            // Using a more detailed star map if available, fallback to Milky Way
+            const starTextureUrl = 'https://www.solarsystemscope.com/textures/download/8k_stars_milky_way.jpg'; // Try 8k for more detail
+            // Fallback: 'https://www.solarsystemscope.com/textures/download/2k_stars_milky_way.jpg'
+            const starTexture = textureLoader.load(starTextureUrl, 
+                () => { console.log("Starfield texture loaded: ", starTextureUrl);},
+                undefined,
+                (err) => { 
+                    console.error('Error loading primary starfield texture, trying fallback:', err);
+                    const fallbackStarTexture = textureLoader.load('https://www.solarsystemscope.com/textures/download/2k_stars_milky_way.jpg', 
+                        () => console.log("Fallback starfield loaded."),
+                        undefined,
+                        (e) => console.error("Failed to load fallback starfield texture.", e)
+                    );
+                    fallbackStarTexture.encoding = THREE.sRGBEncoding;
+                    if(starfield && starfield.material) starfield.material.map = fallbackStarTexture;
+                 }
+            );
+            starTexture.encoding = THREE.sRGBEncoding;
+            const starGeometry = new THREE.SphereGeometry(35000, 64, 64); // Even larger
+            const starMaterial = new THREE.MeshBasicMaterial({
+                map: starTexture, side: THREE.BackSide, fog: false, depthWrite: false // Ensure it's always in back
+            });
+            const starfield = new THREE.Mesh(starGeometry, starMaterial);
+            starfield.name = "Starfield";
+            scene.add(starfield);
+
+            if (params.showStarTwinkling) { /* ... as before ... */
+                const starPointsGeometry = new THREE.BufferGeometry();
+                const starPointsMaterial = new THREE.PointsMaterial({
+                    color: 0xffffff, size: 15, // Slightly larger
+                    map: textureLoader.load('https://threejs.org/examples/textures/sprites/spark1.png'), // Different sprite
+                    transparent: true, blending: THREE.AdditiveBlending,
+                    depthWrite: false, opacity: 0.5
+                });
+                const vertices = [];
+                for (let i = 0; i < 3000; i++) { 
+                    const x = THREE.MathUtils.randFloatSpread(30000); 
+                    const y = THREE.MathUtils.randFloatSpread(30000);
+                    const z = THREE.MathUtils.randFloatSpread(30000);
+                    if (new THREE.Vector3(x,y,z).length() < 7000) continue; 
+                    vertices.push(x, y, z);
+                }
+                starPointsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+                const twinklingStars = new THREE.Points(starPointsGeometry, starPointsMaterial);
+                twinklingStars.name = "TwinklingStars";
+                scene.add(twinklingStars);
+                scene.userData.twinklingStars = twinklingStars; 
+            }
+        }
+        
+        function onWindowResize() { /* ... as before ... */
+            if (camera) { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); }
+            if (renderer) renderer.setSize(window.innerWidth, window.innerHeight);
+            if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        let currentPlanetFocusIndex = 0; 
+        function getFocusableCelestialObjects() { /* ... as before ... */
+            return planets.filter(p => p.userData.isSun || p.userData.isPlanet || p.userData.isMoon);
+        }
+        function navigatePlanet(direction) { /* ... as before ... */
+            const focusableObjects = getFocusableCelestialObjects();
+            if (focusableObjects.length === 0) return;
+            currentPlanetFocusIndex = (currentPlanetFocusIndex + direction + focusableObjects.length) % focusableObjects.length;
+            focusOnObject(focusableObjects[currentPlanetFocusIndex]);
+        }
+        function focusOnObject(target) { /* ... as before, ensure targetRadius is checked ... */
+            if (!target || !target.userData) return;
+            focusedObject = target;
+            updateInfoPanel(target.userData);
+            const targetPosition = new THREE.Vector3();
+            target.getWorldPosition(targetPosition); 
+            let offsetDistance;
+            const targetRadius = target.geometry && target.geometry.parameters && typeof target.geometry.parameters.radius === 'number' ? target.geometry.parameters.radius : 1;
+
+            if (target.userData.isSun) offsetDistance = targetRadius * 4.5;
+            else if (target.userData.isPlanet) offsetDistance = targetRadius * 7;
+            else if (target.userData.isMoon) offsetDistance = targetRadius * 12; 
+            else offsetDistance = 250; 
+            
+            const cameraOffset = new THREE.Vector3(offsetDistance * 0.2, offsetDistance * 0.4, offsetDistance); // Adjusted for better angle
+            const newCamPos = new THREE.Vector3().copy(targetPosition).add(cameraOffset);
+
+            new TWEEN.Tween(camera.position).to(newCamPos, 1500).easing(TWEEN.Easing.Quadratic.InOut).start();
+            new TWEEN.Tween(controls.target).to(targetPosition, 1500).easing(TWEEN.Easing.Quadratic.InOut).onUpdate(() => { if(controls) controls.update();}).start();
+        }
+        function focusOnSolarSystemView() { /* ... as before ... */
+            focusedObject = null;
+            const infoPanel = document.getElementById('infoPanel'); if(infoPanel) infoPanel.style.display = 'none';
+            const furthestPlanetData = solarSystemData.neptune; 
+            const overviewDistance = furthestPlanetData.orbitalDistance * 1.4; // Zoom out a bit more
+            const overviewY = furthestPlanetData.orbitalDistance * 0.5;
+            const overviewPosition = new THREE.Vector3(0, overviewY, overviewDistance); 
+            new TWEEN.Tween(camera.position).to(overviewPosition, 2000).easing(TWEEN.Easing.Quadratic.InOut).start();
+            new TWEEN.Tween(controls.target).to(new THREE.Vector3(0,0,0), 2000).easing(TWEEN.Easing.Quadratic.InOut).onUpdate(() => {if(controls) controls.update();}).start();
+        }
+        function updateInfoPanel(data) { /* ... as before ... */
+            const panel = document.getElementById('infoPanel');
+            if (!panel || !data || !data.name) { if(panel) panel.style.display = 'none'; return; }
+            panel.querySelector('#infoName').textContent = data.name;
+            panel.querySelector('#infoType').textContent = data.type || 'N/A';
+            const displayData = data.data || data; 
+            panel.querySelector('#infoRadius').textContent = displayData.radius || 'N/A';
+            panel.querySelector('#infoMass').textContent = displayData.mass || 'N/A';
+            panel.querySelector('#infoOrbitalDistance').textContent = displayData.orbitalDistance || 'N/A';
+            panel.querySelector('#infoOrbitalPeriod').textContent = displayData.orbitalPeriod || 'N/A';
+            panel.querySelector('#infoRotationPeriod').textContent = displayData.rotationPeriod || 'N/A';
+            panel.querySelector('#infoAxialTilt').textContent = displayData.axialTilt || 'N/A';
+            panel.querySelector('#infoTemperature').textContent = displayData.temperature || 'N/A';
+            panel.querySelector('#infoDescription').textContent = displayData.description || 'No description available.';
+            const atmosphereP = panel.querySelector('#infoAtmosphereP');
+            if (displayData.atmosphere) { panel.querySelector('#infoAtmosphere').textContent = displayData.atmosphere; atmosphereP.style.display = 'block'; } 
+            else { atmosphereP.style.display = 'none'; }
+            const moonsP = panel.querySelector('#infoMoonsP');
+            if (data.isPlanet && data.moons && Object.keys(data.moons).length > 0) {
+                panel.querySelector('#infoMoons').textContent = Object.values(data.moons).map(m => m.name).join(', ');
+                moonsP.style.display = 'block';
+            } else if (data.isMoon && data.parentPlanet) {
+                 panel.querySelector('#infoMoons').textContent = `Moon of ${data.parentPlanet.name}`;
+                 moonsP.style.display = 'block';
+            } else { moonsP.style.display = 'none'; }
+            panel.style.display = 'block';
+        }
+        function toggleOrbitalPaths() { /* ... as before ... */
+            showOrbits = !showOrbits;
+            orbitalPaths.forEach(path => path.visible = showOrbits);
+            const toggleButton = document.getElementById('toggleOrbits');
+            if(toggleButton) toggleButton.textContent = showOrbits ? "Hide Orbits" : "Show Orbits";
+        }
+
+        const clock = new THREE.Clock();
+        let elapsedTimeTotal = 0; 
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            TWEEN.update(); 
+            elapsedTimeTotal += delta * timeMultiplier; 
+
+            planets.forEach(obj => {
+                if (!obj.userData) return; 
+
+                if (obj.userData.isSun) { 
+                    obj.rotation.y += params.sunRotationSpeed * timeMultiplier * delta * 60; 
+                    
+                    // Animate Sun surface UVs
+                    if (params.animateSunSurface && obj.material.map && obj.geometry.userData.originalUVs) {
+                        const uvAttribute = obj.geometry.attributes.uv;
+                        const originalUVs = obj.geometry.userData.originalUVs.array;
+                        const time = elapsedTimeTotal * 0.05; // Speed of distortion
+
+                        for (let i = 0; i < uvAttribute.count; i++) {
+                            const u = originalUVs[i * 2];
+                            const v = originalUVs[i * 2 + 1];
+                            // Simple scrolling and slight wobble
+                            const noiseVal = simpleNoise(u * 5, v * 5, time); // Use simpleNoise
+                            uvAttribute.setXY(i, u + time * 0.01 + noiseVal * 0.005, v + noiseVal * 0.005);
+                        }
+                        uvAttribute.needsUpdate = true;
+                    }
+                    
+                    // Animate Corona Sprites
+                    obj.children.forEach(child => {
+                        if (child.isSprite && child.userData.baseScale) { // Check if it's one of our corona sprites
+                            child.rotation.z += 0.001 * timeMultiplier * delta * 60 * (child.userData.baseScale / 4); // Rotate faster for outer layers
+                            const pulse = (Math.sin(elapsedTimeTotal * 0.2 * (6 - child.userData.baseScale) + child.userData.baseScale) * 0.1 + 0.95);
+                            child.scale.set(
+                                sun.userData.radius * child.userData.baseScale * pulse,
+                                sun.userData.radius * child.userData.baseScale * pulse,
+                                1
+                            );
+                        }
+                    });
+
+
+                    // Solar Flares
+                    if (Math.random() < params.solarFlareFrequency * timeMultiplier * delta * 15 && obj.children.filter(c=>c.userData.isFlare).length < 30) { 
+                        const flareGeo = new THREE.SphereGeometry(obj.userData.radius * (Math.random() * 0.04 + 0.02), 8, 8); // Slightly larger flares
+                        const flareMat = new THREE.MeshBasicMaterial({color: 0xffbb33, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending});
+                        const flare = new THREE.Mesh(flareGeo, flareMat);
+                        flare.userData.isFlare = true;
+                        
+                        const phi = Math.random() * Math.PI * 2;
+                        const theta = Math.acos(2 * Math.random() -1); 
+                        const r = obj.userData.radius * 1.01; 
+                        flare.position.setFromSphericalCoords(r, phi, theta);
+                        
+                        flare.userData.life = Math.random() * 1.8 + 0.7; 
+                        const speed = obj.userData.radius * (Math.random() * 0.4 + 0.3);
+                        // Give flares a slightly curved path (very simplified)
+                        const curveStrength = (Math.random() - 0.5) * 0.5;
+                        flare.userData.velocity = new THREE.Vector3().copy(flare.position).normalize().multiplyScalar(speed);
+                        flare.userData.curveAxis = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+
+                        obj.add(flare);
+                    }
+                     for (let i = obj.children.length - 1; i >= 0; i--) {
+                        const child = obj.children[i];
+                        if (child.userData && child.userData.isFlare) { 
+                            child.userData.life -= delta; 
+                            // Apply curved motion
+                            if(child.userData.curveAxis) {
+                                child.position.applyAxisAngle(child.userData.curveAxis, 0.005 * timeMultiplier * delta * 60 * (child.userData.velocity.length() / (sun.userData.radius * 0.3) ) );
+                            }
+                            child.position.addScaledVector(child.userData.velocity.clone().normalize(), child.userData.velocity.length() * delta * timeMultiplier * 0.05); // Move along its (now rotated) velocity direction
+
+                            child.scale.multiplyScalar(1 - (0.7 * delta)); 
+                            if (child.userData.life <= 0 || child.scale.x < 0.005) {
+                                obj.remove(child);
+                                if(child.geometry) child.geometry.dispose();
+                                if(child.material) child.material.dispose();
+                            }
+                        }
+                    }
+
+                } else if (obj.userData.isPlanet) { 
+                    obj.rotation.y += obj.userData.rotationSpeed * timeMultiplier * delta * 60; 
+                    if (obj.userData.orbitalDistance > 0) { 
+                        // Slightly more Kepler-like: v ~ 1/sqrt(r) means period T ~ r^(3/2), so angular speed w ~ 1/r^(3/2)
+                        // For simplicity, we'll make speed inversely proportional to distance for a visual effect.
+                        const speedFactor = (solarSystemData.earth.orbitalDistance / obj.userData.orbitalDistance); // Faster if closer than Earth
+                        const effectiveOrbitalSpeed = obj.userData.orbitalSpeed * Math.sqrt(speedFactor);
+
+                        obj.position.x = Math.cos(elapsedTimeTotal * effectiveOrbitalSpeed) * obj.userData.orbitalDistance;
+                        obj.position.z = Math.sin(elapsedTimeTotal * effectiveOrbitalSpeed) * obj.userData.orbitalDistance;
+                    }
+                    if (obj.userData.cloudMesh) {
+                        obj.userData.cloudMesh.rotation.y += 0.0003 * timeMultiplier * delta * 60; // Slower clouds
+                    }
+                } else if (obj.userData.isMoon) { 
+                    obj.rotation.y += obj.userData.rotationSpeed * timeMultiplier * delta * 60;
+                    if (obj.userData.parentPlanet && obj.userData.orbitalDistance > 0) {
+                        const effectiveOrbitalSpeed = obj.userData.orbitalSpeed; // Moons can have their own distinct speeds
+                        obj.position.x = Math.cos(elapsedTimeTotal * 5 * effectiveOrbitalSpeed + obj.userData.id.length) * obj.userData.orbitalDistance; 
+                        obj.position.z = Math.sin(elapsedTimeTotal * 5 * effectiveOrbitalSpeed + obj.userData.id.length) * obj.userData.orbitalDistance;
+                    }
+                }
+            });
+
+            if (params.showStarTwinkling && scene.userData.twinklingStars) { /* ... as before ... */
+                 const material = scene.userData.twinklingStars.material;
+                 material.opacity = Math.abs(Math.sin(elapsedTimeTotal * 0.4)) * 0.35 + 0.25; 
+                 material.size = (Math.abs(Math.sin(elapsedTimeTotal * 0.4)) * 5 + 10) * (window.innerWidth / 1300); 
+            }
+
+            if(controls) controls.update(); 
+            if(composer) composer.render();
+            else if (renderer) renderer.render(scene, camera); 
+        }
+
+        const raycaster = new THREE.Raycaster();
+        const mouseVec = new THREE.Vector2(); // Renamed to avoid conflict with 'mouse' module if any
+
+        function onDocumentMouseDown(event) { /* ... as before ... */
+            if (event.target.closest('.dg') || event.target.closest('#controlsSidebar') || event.target.closest('#infoPanel')) return; 
+            event.preventDefault();
+            mouseVec.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseVec.y = - (event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouseVec, camera);
+            const intersects = raycaster.intersectObjects(planets, true); 
+            if (intersects.length > 0) {
+                let clickedObject = intersects[0].object;
+                while(clickedObject.parent && clickedObject.parent !== scene && (!clickedObject.userData || !clickedObject.userData.name)) clickedObject = clickedObject.parent;
+                if (clickedObject.userData && clickedObject.userData.name) {
+                    const mainObject = planets.find(p => p.uuid === clickedObject.uuid); 
+                    if (mainObject) {
+                        focusOnObject(mainObject);
+                        const focusableObjects = getFocusableCelestialObjects();
+                        const idx = focusableObjects.findIndex(p => p === mainObject);
+                        if (idx !== -1) currentPlanetFocusIndex = idx;
+                    }
+                }
+            }
+        }
+        document.addEventListener('mousedown', onDocumentMouseDown, false);
+        console.log("Event listeners and main script setup complete. Waiting for assets to load...");
+    </script>
+</body>
+</html>
