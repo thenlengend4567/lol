@@ -284,6 +284,12 @@
             animateSunSurface: true,
         };
 
+        const weatherParams = {
+            cloudSpeed: 1.0,
+            cloudOpacity: 0.5,
+            stormIntensity: 0.0 // 0 to 1
+        };
+
         // Simple noise function (usually you'd use a library or a noise texture)
         function simpleNoise(x, y, t) {
             return Math.sin(x * 0.1 + t) * Math.cos(y * 0.1 + t);
@@ -309,6 +315,19 @@
             guiInstance.add(params, 'showStarTwinkling').name('Twinkle Stars');
             guiInstance.add({ toggleOrbitsF: toggleOrbitalPaths }, 'toggleOrbitsF').name('Toggle Orbits'); // Renamed to avoid conflict
             guiInstance.add({ solarSystemViewF: focusOnSolarSystemView }, 'solarSystemViewF').name('Solar System View');
+
+            const weatherFolder = guiInstance.addFolder('Weather System');
+            weatherFolder.add(weatherParams, 'cloudSpeed', 0, 5, 0.1).name('Cloud Speed');
+            weatherFolder.add(weatherParams, 'cloudOpacity', 0, 1, 0.05).name('Cloud Opacity').onChange(val => updateCloudOpacity(val));
+            weatherFolder.add(weatherParams, 'stormIntensity', 0, 1, 0.05).name('Storm Intensity');
+        }
+
+        function updateCloudOpacity(opacity) {
+            planets.forEach(p => {
+                if (p.userData.cloudMesh) {
+                    p.userData.cloudMesh.material.opacity = opacity;
+                }
+            });
         }
 
         function init() { /* ... as before ... */
@@ -810,6 +829,25 @@
         const clock = new THREE.Clock();
         let elapsedTimeTotal = 0; 
 
+        function triggerLightning(planet) {
+            if (!planet.userData.lightnings) planet.userData.lightnings = [];
+
+            const r = planet.userData.radius * (planet.userData.cloudMesh ? 1.016 : 1.005); // Just above clouds or surface
+            const geometry = new THREE.SphereGeometry(planet.userData.radius * 0.03, 8, 8);
+            const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1.0 });
+            const lightning = new THREE.Mesh(geometry, material);
+
+            // Random position on surface
+            const u = (Math.random() - 0.5) * 2;
+            const phi = Math.acos(u); // 0 to PI
+            const theta = Math.random() * Math.PI * 2; // 0 to 2PI
+
+            lightning.position.setFromSphericalCoords(r, phi, theta);
+
+            planet.add(lightning);
+            planet.userData.lightnings.push(lightning);
+        }
+
         function animate() {
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
@@ -904,8 +942,29 @@
                         obj.position.z = Math.sin(elapsedTimeTotal * effectiveOrbitalSpeed) * obj.userData.orbitalDistance;
                     }
                     if (obj.userData.cloudMesh) {
-                        obj.userData.cloudMesh.rotation.y += 0.0003 * timeMultiplier * delta * 60; // Slower clouds
+                        obj.userData.cloudMesh.rotation.y += 0.0003 * weatherParams.cloudSpeed * timeMultiplier * delta * 60;
                     }
+
+                    // Weather: Lightning Storms
+                    if ((obj.userData.name === 'Earth' || obj.userData.name === 'Venus' || obj.userData.name === 'Jupiter' || obj.userData.name === 'Saturn') && weatherParams.stormIntensity > 0) {
+                        if (Math.random() < weatherParams.stormIntensity * 0.02 * timeMultiplier) { // Adjust probability
+                             triggerLightning(obj);
+                        }
+                    }
+                    // Update Lightning
+                    if (obj.userData.lightnings) {
+                        for (let i = obj.userData.lightnings.length - 1; i >= 0; i--) {
+                            const lightning = obj.userData.lightnings[i];
+                            lightning.material.opacity -= 2.0 * delta; // Quick fade
+                            if (lightning.material.opacity <= 0) {
+                                obj.remove(lightning);
+                                lightning.geometry.dispose();
+                                lightning.material.dispose();
+                                obj.userData.lightnings.splice(i, 1);
+                            }
+                        }
+                    }
+
                 } else if (obj.userData.isMoon) { 
                     obj.rotation.y += obj.userData.rotationSpeed * timeMultiplier * delta * 60;
                     if (obj.userData.parentPlanet && obj.userData.orbitalDistance > 0) {
