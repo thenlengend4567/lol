@@ -335,6 +335,12 @@
             scene.add(ambientLight);
 
             const sunLight = new THREE.PointLight(0xffffff, 1.8, 0, 2); 
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 5000;
+            sunLight.shadow.bias = -0.0001;
             scene.add(sunLight); 
 
             createSun();
@@ -554,7 +560,14 @@
                     ringMesh.name = "Saturn Rings";
                     ringMesh.rotation.x = Math.PI / 2; 
                     ringMesh.receiveShadow = true; // Rings should receive shadows from Saturn
-                    // ringMesh.castShadow = true; // Rings casting shadows is complex
+                    ringMesh.castShadow = true;
+
+                    // Custom distance material for correct shadow casting with alpha map (required for PointLight)
+                    ringMesh.customDistanceMaterial = new THREE.MeshDistanceMaterial({
+                        map: ringBaseTexture,
+                        alphaTest: 0.05
+                    });
+
                     planet.add(ringMesh); 
                     planet.userData.ringMesh = ringMesh;
                 } else if (key === 'uranus') { /* ... as before ... */
