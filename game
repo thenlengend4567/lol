@@ -895,10 +895,11 @@
                 } else if (obj.userData.isPlanet) { 
                     obj.rotation.y += obj.userData.rotationSpeed * timeMultiplier * delta * 60; 
                     if (obj.userData.orbitalDistance > 0) { 
-                        // Slightly more Kepler-like: v ~ 1/sqrt(r) means period T ~ r^(3/2), so angular speed w ~ 1/r^(3/2)
-                        // For simplicity, we'll make speed inversely proportional to distance for a visual effect.
-                        const speedFactor = (solarSystemData.earth.orbitalDistance / obj.userData.orbitalDistance); // Faster if closer than Earth
-                        const effectiveOrbitalSpeed = obj.userData.orbitalSpeed * Math.sqrt(speedFactor);
+                        // Kepler's 3rd Law: T^2 ~ r^3, so angular speed w ~ r^(-1.5)
+                        // We use Earth as the reference to calibrate the gravitational parameter of the Sun.
+                        const earth = solarSystemData.earth;
+                        const sunGravitationalParameter = Math.pow(earth.orbitalDistance, 3) * Math.pow(earth.orbitalSpeed, 2);
+                        const effectiveOrbitalSpeed = Math.sqrt(sunGravitationalParameter / Math.pow(obj.userData.orbitalDistance, 3));
 
                         obj.position.x = Math.cos(elapsedTimeTotal * effectiveOrbitalSpeed) * obj.userData.orbitalDistance;
                         obj.position.z = Math.sin(elapsedTimeTotal * effectiveOrbitalSpeed) * obj.userData.orbitalDistance;
