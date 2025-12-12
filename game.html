@@ -163,8 +163,10 @@
             if(loadingProgress) loadingProgress.textContent = `${progress.toFixed(0)}%`;
         };
 
-        loadingManager.onLoad = function () {
-            console.log('LoadingManager: All assets loaded successfully!');
+        let isGameInitialized = false;
+        function startGame() {
+            if (isGameInitialized) return;
+            isGameInitialized = true;
             if (loadingIndicator) loadingIndicator.style.display = 'none';
             try {
                 console.log("Calling init()...");
@@ -179,17 +181,49 @@
                     loadingIndicator.style.display = 'block';
                 }
             }
+        }
+
+        loadingManager.onLoad = function () {
+            console.log('LoadingManager: All assets loaded successfully!');
+            startGame();
         };
 
         loadingManager.onError = function (url) {
             console.error('LoadingManager: Error loading asset: ' + url);
             if (loadingIndicator) {
                  loadingIndicator.textContent = `Error loading: ${url.split('/').pop()}. Check console.`;
-                 loadingIndicator.style.display = 'block'; // Keep visible on error
             }
         };
 
+        // Fallback to start if loading hangs (e.g. 404s)
+        setTimeout(() => {
+            if (!isGameInitialized) {
+                console.warn("Loading timed out. Forcing game start.");
+                startGame();
+            }
+        }, 4000);
+
         // --- Data for Celestial Bodies ---
+
+        function createNoiseTextureUrl() {
+            const width = 512;
+            const height = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            const imgData = ctx.createImageData(width, height);
+            for (let i = 0; i < imgData.data.length; i += 4) {
+                const val = Math.floor(Math.random() * 255);
+                imgData.data[i] = val;
+                imgData.data[i+1] = val;
+                imgData.data[i+2] = val;
+                imgData.data[i+3] = 255;
+            }
+            ctx.putImageData(imgData, 0, 0);
+            return canvas.toDataURL();
+        }
+
         // Textures: Using 2k from solarsystemscope.com. Removed .tif files for Earth.
         const solarSystemData = {
             sun: {
@@ -256,7 +290,7 @@
                 name: "Saturn", type: "Gas Giant", radius: 9.45, orbitalDistance: 200, orbitalSpeed: 0.0003, rotationSpeed: 0.023,
                 texture: 'https://www.solarsystemscope.com/textures/download/2k_saturn.jpg',
                 ringTexture: 'https://www.solarsystemscope.com/textures/download/2k_saturn_ring_alpha.png',
-                // ringNoiseTexture: 'https://example.com/path/to/ring_noise.png', // For particulate look
+                ringNoiseTexture: createNoiseTextureUrl(), // For particulate look
                 data: { radius: "58,232 km", mass: "95.2 Earths", orbitalDistance: "9.58 AU", orbitalPeriod: "29.45 Earth years", rotationPeriod: "10.7 hours", axialTilt: "26.73°", temperature: "Cloud tops ~ -178°C", atmosphere: "96% H2, 3% He", description: "Famous for its extensive ring system." },
                 moons: {
                     titan: { name: "Titan", type: "Natural Satellite", radius: 0.40, orbitalDistance: 11, orbitalSpeed: 0.018, texture: 'https://www.solarsystemscope.com/textures/misc/2k_titan.jpg', data: { description: "Saturn's largest moon, thick atmosphere."}},
@@ -527,8 +561,12 @@
                     const ringData = planetData; 
                     const ringBaseTexture = textureLoader.load(ringData.ringTexture, undefined, undefined, (e) => console.error("Failed to load Saturn ring texture", e));
                     ringBaseTexture.encoding = THREE.sRGBEncoding;
-                    // const ringNoise = textureLoader.load(ringData.ringNoiseTexture); // If you add a noise texture
-                    // ringNoise.wrapS = ringNoise.wrapT = THREE.RepeatWrapping;
+
+                    const ringNoise = ringData.ringNoiseTexture ? textureLoader.load(ringData.ringNoiseTexture) : null;
+                    if (ringNoise) {
+                        ringNoise.wrapS = ringNoise.wrapT = THREE.RepeatWrapping;
+                        ringNoise.repeat.set(2, 8); // Repeat noise to create fine grain
+                    }
 
                     const innerRadius = ringData.radius * 1.1; 
                     const outerRadius = ringData.radius * 2.3;  
@@ -538,12 +576,17 @@
                     var v3 = new THREE.Vector3();
                     for (let i = 0; i < pos.count; i++){
                         v3.fromBufferAttribute(pos, i);
-                        ringGeometry.attributes.uv.setXY(i, (v3.length() - innerRadius) / (outerRadius - innerRadius), 1);
+                        // Map U to radius, V to angle for noise texture mapping
+                        const u = (v3.length() - innerRadius) / (outerRadius - innerRadius);
+                        const angle = Math.atan2(v3.y, v3.x);
+                        const v = (angle / (2 * Math.PI)) + 0.5;
+                        ringGeometry.attributes.uv.setXY(i, u, v);
                     }
 
                     const ringMaterial = new THREE.MeshPhongMaterial({
                         map: ringBaseTexture, 
-                        // alphaMap: ringBaseTexture, // Use map as alphaMap if it has alpha
+                        bumpMap: ringNoise,
+                        bumpScale: 0.02,
                         side: THREE.DoubleSide,
                         transparent: true, opacity: 0.75, 
                         alphaTest: 0.05, 
