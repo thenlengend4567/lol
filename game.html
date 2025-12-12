@@ -122,8 +122,7 @@
         import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
         import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
         import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-        // Simplex noise for sun surface animation (optional, can be embedded or from CDN)
-        // For simplicity, I'll embed a very basic noise function later if needed, or skip if it complicates loading.
+        import { SimplexNoise } from 'three/examples/jsm/math/SimplexNoise.js';
 
         (function(){var script=document.createElement('script');script.onload=function(){var stats=new Stats();stats.dom.style.cssText='position:absolute;top:0;left:auto;right:0;z-index:1000;'; document.body.appendChild(stats.dom);requestAnimationFrame(function loop(){stats.update();requestAnimationFrame(loop)});};script.src='https://mrdoob.github.io/stats.js/build/stats.min.js';document.head.appendChild(script);})();
         
@@ -284,10 +283,7 @@
             animateSunSurface: true,
         };
 
-        // Simple noise function (usually you'd use a library or a noise texture)
-        function simpleNoise(x, y, t) {
-            return Math.sin(x * 0.1 + t) * Math.cos(y * 0.1 + t);
-        }
+        const simplex = new SimplexNoise();
 
         function initDatGUI() { /* ... as before, ensure composer.passes[1] exists for bloom ... */
             if (typeof dat === 'undefined' || guiInstance) return; 
@@ -335,6 +331,10 @@
             scene.add(ambientLight);
 
             const sunLight = new THREE.PointLight(0xffffff, 1.8, 0, 2); 
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.bias = -0.0001;
             scene.add(sunLight); 
 
             createSun();
@@ -551,10 +551,18 @@
                         shininess: 5, specular: 0x111111
                     });
                     const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+
+                    // Custom distance material for correct shadow casting with alpha transparency
+                    ringMesh.customDistanceMaterial = new THREE.MeshDistanceMaterial({
+                        map: ringBaseTexture,
+                        alphaMap: ringBaseTexture,
+                        alphaTest: 0.05
+                    });
+
                     ringMesh.name = "Saturn Rings";
                     ringMesh.rotation.x = Math.PI / 2; 
                     ringMesh.receiveShadow = true; // Rings should receive shadows from Saturn
-                    // ringMesh.castShadow = true; // Rings casting shadows is complex
+                    ringMesh.castShadow = true;
                     planet.add(ringMesh); 
                     planet.userData.ringMesh = ringMesh;
                 } else if (key === 'uranus') { /* ... as before ... */
@@ -832,7 +840,7 @@
                             const u = originalUVs[i * 2];
                             const v = originalUVs[i * 2 + 1];
                             // Simple scrolling and slight wobble
-                            const noiseVal = simpleNoise(u * 5, v * 5, time); // Use simpleNoise
+                            const noiseVal = simplex.noise3d(u * 5, v * 5, time);
                             uvAttribute.setXY(i, u + time * 0.01 + noiseVal * 0.005, v + noiseVal * 0.005);
                         }
                         uvAttribute.needsUpdate = true;
