@@ -333,18 +333,17 @@
             guiInstance.add({ toggleOrbitsF: toggleOrbitalPaths }, 'toggleOrbitsF').name('Toggle Orbits'); // Renamed to avoid conflict
             guiInstance.add({ solarSystemViewF: focusOnSolarSystemView }, 'solarSystemViewF').name('Solar System View');
 
-            const weatherFolder = guiInstance.addFolder('Weather System');
+            const weatherFolder = guiInstance.addFolder('Earth Weather');
             weatherFolder.add(weatherParams, 'cloudSpeed', 0, 5, 0.1).name('Cloud Speed');
             weatherFolder.add(weatherParams, 'cloudOpacity', 0, 1, 0.05).name('Cloud Opacity').onChange(val => updateCloudOpacity(val));
             weatherFolder.add(weatherParams, 'stormIntensity', 0, 1, 0.05).name('Storm Intensity');
         }
 
         function updateCloudOpacity(opacity) {
-            planets.forEach(p => {
-                if (p.userData.cloudMesh) {
-                    p.userData.cloudMesh.material.opacity = opacity;
-                }
-            });
+            const earth = planets.find(p => p.userData.name === 'Earth');
+            if (earth && earth.userData.cloudMesh) {
+                earth.userData.cloudMesh.material.opacity = opacity;
+            }
         }
 
         function init() { /* ... as before ... */
@@ -986,11 +985,13 @@
                         obj.position.z = Math.sin(elapsedTimeTotal * effectiveOrbitalSpeed) * obj.userData.orbitalDistance;
                     }
                     if (obj.userData.cloudMesh) {
-                        obj.userData.cloudMesh.rotation.y += 0.0003 * weatherParams.cloudSpeed * timeMultiplier * delta * 60;
+                        // Apply cloud speed only to Earth, others use default slow speed
+                        const speed = (obj.userData.name === 'Earth') ? weatherParams.cloudSpeed : 1.0;
+                        obj.userData.cloudMesh.rotation.y += 0.0003 * speed * timeMultiplier * delta * 60;
                     }
 
-                    // Weather: Lightning Storms
-                    if ((obj.userData.name === 'Earth' || obj.userData.name === 'Venus' || obj.userData.name === 'Jupiter' || obj.userData.name === 'Saturn') && weatherParams.stormIntensity > 0) {
+                    // Weather: Lightning Storms (Earth Only)
+                    if (obj.userData.name === 'Earth' && weatherParams.stormIntensity > 0) {
                         if (Math.random() < weatherParams.stormIntensity * 0.02 * timeMultiplier) { // Adjust probability
                              triggerLightning(obj);
                         }
