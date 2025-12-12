@@ -167,13 +167,11 @@
             console.log('LoadingManager: All assets loaded successfully!');
             if (loadingIndicator) loadingIndicator.style.display = 'none';
             try {
-                console.log("Calling init()...");
-                init();
                 console.log("Calling animate()...");
                 animate();
-                console.log("Initialization and animation started.");
+                console.log("Animation started.");
             } catch(e) {
-                console.error("Critical Error during initialization or animation start:", e);
+                console.error("Critical Error during animation start:", e);
                 if (loadingIndicator) {
                     loadingIndicator.textContent = 'Critical Error. Check console.';
                     loadingIndicator.style.display = 'block';
@@ -217,8 +215,8 @@
             earth: {
                 name: "Earth", type: "Terrestrial Planet", radius: 1, orbitalDistance: 70, orbitalSpeed: 0.001, rotationSpeed: 0.01,
                 texture: 'https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg',
-                // specularMap: 'REMOVED_TIF_PLACEHOLDER', // .tif problematic
-                // normalMap: 'REMOVED_TIF_PLACEHOLDER',   // .tif problematic
+                specularMap: 'textures/2k_earth_specular_map.jpg', // .tif converted to .jpg locally
+                normalMap: 'textures/2k_earth_normal_map.jpg',   // .tif converted to .jpg locally
                 cloudTexture: 'https://www.solarsystemscope.com/textures/download/2k_earth_clouds.jpg',
                 data: { /* ... */ 
                     radius: "6,371 km", mass: "1 Earth", orbitalDistance: "1 AU", orbitalPeriod: "365.25 Earth days",
@@ -441,8 +439,14 @@
                 };
                 if (materialParams.map) materialParams.map.encoding = THREE.sRGBEncoding;
                 
-                // Removed .tif specular/normal maps for Earth due to loading issues.
-                // If you find .png/.jpg alternatives, they can be added here.
+                if (planetData.specularMap) {
+                    materialParams.specularMap = textureLoader.load(planetData.specularMap);
+                    // Specular maps are usually non-color data, default LinearEncoding is correct.
+                }
+                if (planetData.normalMap) {
+                    materialParams.normalMap = textureLoader.load(planetData.normalMap);
+                    // Normal maps are non-color data, default LinearEncoding is correct.
+                }
 
                 const material = new THREE.MeshPhongMaterial(materialParams);
                 material.specular = new THREE.Color( (key === 'earth' || key === 'venus') ? 0x333333 : 0x111111); 
@@ -952,7 +956,8 @@
             }
         }
         document.addEventListener('mousedown', onDocumentMouseDown, false);
-        console.log("Event listeners and main script setup complete. Waiting for assets to load...");
+        console.log("Event listeners and main script setup complete. Calling init() to start loading...");
+        init();
     </script>
 </body>
 </html>
