@@ -74,7 +74,8 @@
     {
         "imports": {
             "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
-            "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+            "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/",
+            "@tweenjs/tween.js": "https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@18.6.4/dist/tween.esm.js"
         }
     }
     </script>
@@ -113,11 +114,10 @@
         </select>
         <button id="toggleOrbits" class="ui-button">Toggle Orbits</button>
     </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.min.js"></script>
     
     <script type="module">
         import * as THREE from 'three'; 
+        import TWEEN from '@tweenjs/tween.js';
         import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
         import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
         import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -163,8 +163,13 @@
             if(loadingProgress) loadingProgress.textContent = `${progress.toFixed(0)}%`;
         };
 
-        loadingManager.onLoad = function () {
-            console.log('LoadingManager: All assets loaded successfully!');
+        let isInitialized = false;
+
+        function startApp() {
+            if (isInitialized) return;
+            isInitialized = true;
+
+            console.log('Starting application...');
             if (loadingIndicator) loadingIndicator.style.display = 'none';
             try {
                 console.log("Calling init()...");
@@ -175,19 +180,31 @@
             } catch(e) {
                 console.error("Critical Error during initialization or animation start:", e);
                 if (loadingIndicator) {
-                    loadingIndicator.textContent = 'Critical Error. Check console.';
+                    loadingIndicator.textContent = 'Critical Error: ' + e.toString();
                     loadingIndicator.style.display = 'block';
                 }
             }
+        }
+
+        loadingManager.onLoad = function () {
+            console.log('LoadingManager: All assets loaded successfully!');
+            startApp();
         };
 
         loadingManager.onError = function (url) {
             console.error('LoadingManager: Error loading asset: ' + url);
-            if (loadingIndicator) {
-                 loadingIndicator.textContent = `Error loading: ${url.split('/').pop()}. Check console.`;
-                 loadingIndicator.style.display = 'block'; // Keep visible on error
-            }
+            // Don't stop the app on error, but maybe notify?
+            // We will rely on the timeout to force start if too many errors occur or it hangs.
         };
+
+        // Fallback: Force start after 3 seconds if loading fails or hangs
+        setTimeout(() => {
+            if (!isInitialized) {
+                console.warn("Loading timed out or failed. Forcing application start.");
+                if (loadingIndicator) loadingIndicator.textContent = "Loading timed out. Starting with available assets...";
+                setTimeout(startApp, 1000); // Give user a moment to read the message
+            }
+        }, 3000);
 
         // --- Data for Celestial Bodies ---
         // Textures: Using 2k from solarsystemscope.com. Removed .tif files for Earth.
