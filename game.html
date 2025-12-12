@@ -418,21 +418,26 @@
             // Store original UVs for animation
             geometry.userData.originalUVs = geometry.attributes.uv.clone();
 
-            const sunTexture = textureLoader.load(sunData.texture, 
-                () => { console.log("Sun texture loaded."); }, 
-                undefined, 
-                (err) => { console.error('Error loading sun texture:', sunData.texture, err); } 
-            );
-            sunTexture.encoding = THREE.sRGBEncoding;
-            sunTexture.wrapS = THREE.RepeatWrapping; // For UV animation
-            sunTexture.wrapT = THREE.RepeatWrapping;
-
             const material = new THREE.MeshBasicMaterial({
-                map: sunTexture,
-                emissive: new THREE.Color(sunData.emissive),
-                emissiveIntensity: sunData.emissiveIntensity,
-                toneMapped: false 
+                color: sunData.emissive, // Use emissive color as base color
+                toneMapped: false
             });
+
+            textureLoader.load(sunData.texture,
+                (tex) => {
+                    console.log("Sun texture loaded.");
+                    tex.encoding = THREE.sRGBEncoding;
+                    tex.wrapS = THREE.RepeatWrapping;
+                    tex.wrapT = THREE.RepeatWrapping;
+                    material.map = tex;
+                    material.needsUpdate = true;
+                },
+                undefined,
+                (err) => {
+                    console.error('Error loading sun texture, using fallback color:', sunData.texture, err);
+                    // map remains null, color is used
+                }
+            );
             
             sun = new THREE.Mesh(geometry, material);
             sun.name = sunData.name;
@@ -471,18 +476,34 @@
                 const planetData = solarSystemData[key];
                 const geometry = new THREE.SphereGeometry(planetData.radius, 32, 32);
                 
-                const materialParams = {
-                    map: planetData.texture ? textureLoader.load(planetData.texture, undefined, undefined, (e) => console.error(`Failed to load ${key} texture: ${planetData.texture}`, e)) : undefined,
-                    color: planetData.texture ? undefined : (planetData.textureColor || 0xaaaaaa)
+                // Fallback colors
+                const fallbackColors = {
+                    mercury: 0xaaaaaa, venus: 0xeecb8b, earth: 0x2233ff, mars: 0xff4500,
+                    jupiter: 0xd8ca9d, saturn: 0xf4d03f, uranus: 0x40e0d0, neptune: 0x4169e1
                 };
-                if (materialParams.map) materialParams.map.encoding = THREE.sRGBEncoding;
-                
-                // Removed .tif specular/normal maps for Earth due to loading issues.
-                // If you find .png/.jpg alternatives, they can be added here.
+                const defaultColor = fallbackColors[key] || planetData.textureColor || 0x888888;
 
-                const material = new THREE.MeshPhongMaterial(materialParams);
-                material.specular = new THREE.Color( (key === 'earth' || key === 'venus') ? 0x333333 : 0x111111); 
-                material.shininess = (key === 'earth' || key === 'venus') ? 25 : 10;
+                const material = new THREE.MeshPhongMaterial({
+                    color: defaultColor, // Default color visible if texture fails
+                    specular: (key === 'earth' || key === 'venus') ? 0x333333 : 0x111111,
+                    shininess: (key === 'earth' || key === 'venus') ? 25 : 10
+                });
+
+                if (planetData.texture) {
+                    textureLoader.load(planetData.texture,
+                        (tex) => {
+                            tex.encoding = THREE.sRGBEncoding;
+                            material.map = tex;
+                            material.color.setHex(0xffffff); // Reset color to white so texture shows correctly
+                            material.needsUpdate = true;
+                        },
+                        undefined,
+                        (err) => {
+                            console.error(`Failed to load ${key} texture, using fallback color.`, err);
+                            // material.map remains null, color remains defaultColor
+                        }
+                    );
+                }
 
                 const planet = new THREE.Mesh(geometry, material);
                 planet.name = planetData.name;
@@ -678,15 +699,16 @@
             return material;
         }
 
-        function createAsteroidBelt() { /* ... as before, maybe more asteroids ... */
-            const asteroidCount = 1000; 
+        function createAsteroidBelt() {
+            const asteroidCount = 1500; // Increased count
             const beltInnerRadius = solarSystemData.mars.orbitalDistance + 20; 
             const beltOuterRadius = solarSystemData.jupiter.orbitalDistance - 25;
-            const beltHeight = 10; 
+            const beltHeight = 15;
 
-            const asteroidMaterial = new THREE.MeshPhongMaterial({ color: 0x777777, specular: 0x111111, shininess: 2, flatShading: true }); // More distinct asteroids
+            const asteroidMaterial = new THREE.MeshPhongMaterial({ color: 0x888888, specular: 0x222222, shininess: 5, flatShading: true });
             
-            const baseGeometry = new THREE.IcosahedronGeometry(1, 0); 
+            // Use Dodecahedron for chunkier look
+            const baseGeometry = new THREE.DodecahedronGeometry(1, 0);
 
             const instancedMesh = new THREE.InstancedMesh(baseGeometry, asteroidMaterial, asteroidCount); 
             instancedMesh.name = "Asteroid Belt";
@@ -698,12 +720,17 @@
                 const radius = beltInnerRadius + Math.random() * (beltOuterRadius - beltInnerRadius);
                 const x = Math.cos(angle) * radius;
                 const z = Math.sin(angle) * radius;
-                const y = (Math.random() - 0.5) * beltHeight * (1 - Math.pow(Math.abs( (radius - (beltInnerRadius + beltOuterRadius)/2) / ((beltOuterRadius - beltInnerRadius)/2) ), 2) ); // More tapered height
+                // Height distribution: denser in middle
+                const y = (Math.random() - 0.5) * beltHeight * (1 - Math.pow(Math.random(), 2));
 
                 dummy.position.set(x, y, z);
+                // Random rotation
                 dummy.rotation.set(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2);
-                const scale = Math.random() * 0.20 + 0.03; // Slightly larger max size
-                dummy.scale.set(scale,scale,scale);
+
+                // Varied scale
+                const scale = Math.random() * 0.4 + 0.05;
+                dummy.scale.set(scale, scale * (0.8 + Math.random()*0.4), scale * (0.8 + Math.random()*0.4)); // Irregular shape
+
                 dummy.updateMatrix();
                 instancedMesh.setMatrixAt(i, dummy.matrix);
             }
@@ -982,6 +1009,9 @@
                         }
                     }
 
+                } else if (obj.userData.isAsteroidBelt) {
+                     // Rotate the entire asteroid belt slowly
+                     obj.rotation.y += 0.0001 * timeMultiplier * delta * 60;
                 } else if (obj.userData.isMoon) { 
                     obj.rotation.y += obj.userData.rotationSpeed * timeMultiplier * delta * 60;
                     if (obj.userData.parentPlanet && obj.userData.orbitalDistance > 0) {
